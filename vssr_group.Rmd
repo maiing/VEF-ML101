@@ -1,0 +1,360 @@
+---
+title: "vssr_group_proj"
+author: "Mai Ng"
+date: "August 2, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r lib, include=TRUE}
+library(dplyr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(ggthemes)  ## For dumbbell
+library(ggalt)  ## For dumbbell
+```
+
+
+# Explore
+
+```{r data, include=TRUE}
+province_quintiles <- readr::read_csv("https://raw.githubusercontent.com/maiing/vssr-course/master/Day%201/province_quintiles.csv")
+
+region_quintiles <- read_csv("https://raw.githubusercontent.com/maiing/vssr-course/master/Day%201/region_quintiles.csv")
+
+```
+
+## Check data format
+```{r str, include=TRUE}
+str(province_quintiles)
+```
+
+
+## Describe data
+```{r summary, include=TRUE}
+summary(province_quintiles)
+```
+
+```{r check-province, include=TRUE}
+table(province_quintiles$province)
+
+```
+
+
+## Check missing values: No missing value
+```{r missing-value, include=TRUE}
+colSums(is.na(province_quintiles))
+```
+
+## Manipulate data
+#### Transform 
+```{r to-long, include=FALSE}
+prov_long <- gather(province_quintiles, "index", "n", 3:14)
+prov_long$year <- substring(prov_long$index, nchar(prov_long$index)-3, nchar(prov_long$index))
+#df_no_ratio <- df_long[which(substr(df_long$index, 1, 5) != "income"),]
+df_highest <- prov_long[substr(prov_long$index, 1, 4) == "high",]
+df_lowest <- prov_long[substr(prov_long$index, 1, 3) == "low",]
+```
+
+
+```{r check-year, include=TRUE}
+table(prov_long$year)
+table(prov_long$index)
+```
+
+# Viz 
+## Plot 1: 
+*Boxplot for highest and lowest throughout the years to see the trends in highest and lowest income. And of course, they went up, duh* 
+
+```{r highest, include=TRUE}
+high_boxplot <- ggplot(df_highest, aes(x=factor(index), y=n)) + geom_boxplot()
+high_boxplot
+```
+
+```{r lowest, include=TRUE}
+low_boxplot <- ggplot(df_lowest, aes(x=factor(index), y=n)) + geom_boxplot()
+low_boxplot
+```
+
+
+## Plot 2: 
+*I would like to see the ranking of all provinces as well as the changes in income gap among those provinces. So I started to think about provinces on y-axes and a line range between 2010 and 2016. Then idea about dumbbell came out. And I ran into this cool blog by Phi Nguyen. http://phinguyen.co/blog/visualizing-the-2015-2016-bundesliga-season-in-3-charts/ He has such a smart way to illustrate increase and decrease with dumbbell*
+
+**There are some names that deserve attention 'Kon Tum', 'Yen Bai', 'Quang Binh', 'Nghe An’, 'Bac Ninh'. They experienced the most significant increase in income gap. But they are not alone. More than 60% of the provinces had this upward trend. Only 30% had the contrary.** 
+
+```{r prepare-data, include=FALSE}
+prov_long$index_type <- substr(prov_long$index, 1, 6)
+income_gap <- prov_long[prov_long$index_type=="income", ]
+```
+
+```{r ranking-plot, include=FALSE}
+
+#slim data sets
+prov_slim <- select(province_quintiles, region, province, income_ratio_2010, income_ratio_2016)
+
+
+#fix ratio
+prov_slim$income_ratio_2010 <- prov_slim$income_ratio_2010/10
+prov_slim$income_ratio_2016 <- prov_slim$income_ratio_2016/10
+prov_slim <- mutate(prov_slim, dif_ratio=income_ratio_2016-income_ratio_2010)
+
+
+#convert to rank order
+prov_slim <- arrange(prov_slim, region, desc(income_ratio_2010))
+prov_slim$province <- factor(prov_slim$province)
+prov_slim$province <- reorder(prov_slim$province, -prov_slim$income_ratio_2010)
+
+
+#add columns to show differences
+prov_slim$colors <- ifelse(prov_slim$dif_ratio == 0,'black',
+                           ifelse(prov_slim$dif_ratio > 0,'red','blue'))
+colors <- c('red','black','blue')
+prov_slim$Diff <- round(prov_slim$dif_ratio, digits=1)
+
+```
+
+```{r plot-1, eval=FALSE, include=FALSE}
+#create dumbbell plots
+p <- ggplot(prov_slim, aes(x=income_ratio_2010, xend=income_ratio_2016, y=province)) + 
+  geom_segment(aes(y=province, yend=province, x=0, xend= 10), color="#B2B2B2", size=0.15) +
+  geom_dumbbell(aes(x=income_ratio_2010, xend=income_ratio_2016, y=province), size_x=3, colour_x="#B2B2B2") +
+  geom_dumbbell(size_x=3, 
+                size_xend=5, 
+                colour_x="#B2B2B2",
+                colour_xend='#649EFC'
+                   ) +
+  scale_y_discrete("province", expand=c(0.07,0)) + 
+  ggtitle("Income Disparity Ranking & Movement 2010-2016") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), 
+        axis.line=element_blank(), 
+        axis.ticks=element_blank(), 
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_text(size=8),
+        axis.text.x=element_text(size=8),
+        plot.title=element_text(face="bold"), 
+        plot.subtitle=element_text(face="italic", size=9, margin=margin(b=12)), 
+        plot.caption=element_text(size=7, margin=margin(t=12)), plot.margin=unit(rep(10, 4), "pt"))
+  
+p <- p + geom_text(data=filter(prov_slim, province %in% c('KonTum', 'Yen Bai', 'Quang Binh', 'Nghe An')),
+            aes(x=income_ratio_2010, y=province, label=income_ratio_2010), 
+            color="#B2B2B2", 
+            alpha=0.7, 
+            size=2.5, 
+            vjust=0.5,
+            hjust=1.5) +
+  geom_text(data=filter(prov_slim, province %in% c('KonTum', 'Yen Bai', 'Quang Binh', 'Nghe An')),
+            aes(x=income_ratio_2016, y=province, label=income_ratio_2016), 
+            color="#649EFC", 
+            size=2.5, 
+            vjust=0.5,
+            hjust=1.5)
+
+
+p <- p + geom_text(data=filter(prov_slim, province=='Ha Giang'), 
+            aes(x=income_ratio_2010, y=province, label='2010'), 
+            color="#B2B2B2",
+            size=3, 
+            vjust=-1, 
+            hjust=0.5, 
+            fontface="bold") +
+  geom_text(data=filter(prov_slim, province=='Ha Giang'), 
+            aes(x=income_ratio_2016, y=province, label='2016'), 
+            size=3, 
+            vjust=-1, 
+            hjust=0.5, 
+            fontface="bold")
+
+
+p <- p + geom_rect(aes(xmin=10.5, xmax=11.5, ymin=-Inf, ymax=Inf), fill="#EFEFE3") + 
+  geom_text(aes(label=Diff, y=province, x=11, color=prov_slim$colors), 
+            fontface="bold", 
+            size=2.5) + 
+  scale_color_manual(values=c('black','blue','red')) +
+  geom_text(data=filter(prov_slim, province=='Binh Thuan'),
+            aes(x=11, y=province, label='Changes'),
+            size=2.5,
+            vjust=-1,
+            fontface='bold') +
+            #color='#4D4D4D') +
+  theme(legend.position='none')
+p
+```
+
+
+```{r plot-2, include=TRUE}
+#create dumbbell plots
+p <- ggplot(prov_slim, aes(x=income_ratio_2010, xend=income_ratio_2016, y=province)) + 
+  geom_segment(aes(y=province, yend=province, x=5.2, xend= 9.9), color="#B2B2B2", size=0.15) +
+  geom_dumbbell(aes(x=income_ratio_2010, xend=income_ratio_2016, y=province), size_x=3, colour_x="#B2B2B2") +
+  geom_dumbbell(size_x=3, 
+                size_xend=3, 
+                colour_x="#B2B2B2",
+                colour_xend='#649EFC'
+                   ) +
+  scale_y_discrete("province", expand=c(0.05,0)) + 
+  ggtitle("Income Disparity Ranking & Changes from 2010 to 2016") +
+  labs(subtitle = "63% provinces experienced uptrend in income disparity vs. 30% downtrend",
+       caption = "Source: Data from GSO Vietnam", 
+       x = "Income Disparity (Ratio of 20% Highest income to 20% Lowest Income") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), 
+        panel.grid.major.y = element_line(color = "gray90"),
+        axis.line=element_blank(), 
+        axis.ticks=element_blank(), 
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_text(size=8),
+        axis.text.x=element_text(size=8),
+        plot.title=element_text(face="bold"), 
+        plot.subtitle=element_text(size=9, margin=margin(b=12)), 
+        plot.caption=element_text(face="italic", size=7, margin=margin(t=14)), plot.margin=unit(rep(10, 4), "pt"))
+  
+p <- p + geom_text(data=filter(prov_slim, province %in% c('Kon Tum', 'Yen Bai', 'Quang Binh', 'Nghe An')),
+            aes(x=income_ratio_2010, y=province, label=income_ratio_2010), 
+            #color="#B2B2B2", 
+            alpha=0.7, 
+            size=2.5, 
+            vjust=0.5,
+            hjust=1.5) +
+  geom_text(data=filter(prov_slim, province %in% c('Kon Tum', 'Yen Bai', 'Quang Binh', 'Nghe An')),
+            aes(x=income_ratio_2016, y=province, label=income_ratio_2016), 
+            #color="#649EFC", 
+            size=2.5, 
+            vjust=0.5,
+            hjust=-1.25)
+
+
+p <- p + geom_text(data=filter(prov_slim, province=='Ha Giang'), 
+            aes(x=income_ratio_2010, y=province, label='2010'), 
+            color="#B2B2B2",
+            size=3, 
+            vjust=-1, 
+            hjust=0.5, 
+            fontface="bold") +
+  geom_text(data=filter(prov_slim, province=='Ha Giang'), 
+            aes(x=income_ratio_2016, y=province, label='2016'), 
+            size=3, 
+            vjust=-1, 
+            hjust=0.5, 
+            fontface="bold")
+
+
+p <- p + geom_rect(aes(xmin=10, xmax=10.5, ymin=-Inf, ymax=Inf), fill="#EFEFE3") + 
+  geom_text(aes(label=Diff, y=province, x=10.25, color=prov_slim$colors), 
+            fontface="bold", 
+            size=2.5) + 
+  scale_color_manual(values=c('black','blue','red')) +
+  geom_text(data=filter(prov_slim, province=='Binh Thuan'),
+            aes(x=10.25, y=province, label='Changes'),
+            size=3,
+            vjust=-2,
+            fontface='bold') +
+            #color='#4D4D4D') +
+  theme(legend.position='none')
+
+p
+```
+
+```{r pdf-export, include=FALSE}
+pdf("income_disparity.pdf")
+p
+dev.off()
+```
+
+## Plot 3: Highest vs Lowest income quintile in 2016 
+*Following the above graph, I was thinking: Do poor people experience a distince lowest income quintile? And as I have already had a bunch of code with dumbbell, there shouldn't be any reason for me not to try out with this question. So here it is.*
+
+**Obviously, there is not a too distinct in lowest income quintile among provinces, compared to highest income quintile.** 
+
+```{r}
+prov_slim2 <-  select(province_quintiles, region, province, highest_income_quintile_2016, lowest_income_quintile_2016)
+prov_slim2$province <- factor(prov_slim2$province)
+prov_slim2$province <- reorder(prov_slim2$province, -prov_slim2$lowest_income_quintile_2016)
+```
+
+```{r plot-3, include=TRUE}
+#create dumbbell plots
+p3 <- ggplot(prov_slim2, aes(x=lowest_income_quintile_2016, xend=highest_income_quintile_2016, y=province)) + 
+  geom_segment(aes(y=province, yend=province, x=4000, xend= 137000), color="#B2B2B2", size=0.15) +
+  geom_dumbbell(aes(x=lowest_income_quintile_2016, xend=highest_income_quintile_2016, y=province), size_x=3, colour_x="#B2B2B2") +
+  geom_dumbbell(size_x=3, 
+                size_xend=3, 
+                colour_x="#5ab4ac",
+                colour_xend='#d8b365'
+                   ) +
+  scale_y_discrete("province", expand=c(0.07,0)) + 
+  ggtitle("How poor is the poor | How rich is the rich?") +
+  # labs(subtitle = "63% provinces experienced uptrend in income disparity vs. 30% downtrend",
+  #      caption = "Source: Data from GSO Vietnam",
+  #      x = "Income Disparity (Ratio of 20% Highest income to 20% Lowest Income") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), 
+        panel.grid.major.y = element_line(color = "gray90"),
+        axis.line=element_blank(), 
+        axis.ticks=element_blank(), 
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_text(size=8),
+        axis.text.x=element_blank(),
+        plot.title=element_text(face="bold"), 
+        plot.subtitle=element_text(size=9, margin=margin(b=12)), 
+        plot.caption=element_text(face="italic", size=7, margin=margin(t=14)), plot.margin=unit(rep(10, 4), "pt"))
+
+
+p3 <- p3 + geom_text(data=filter(prov_slim2, province %in% c('Bac Kan', 'Ho Chi Minh city')),
+            aes(x=lowest_income_quintile_2016, y=province, label=lowest_income_quintile_2016), 
+            #color="#B2B2B2", 
+            alpha=0.7, 
+            size=2.5, 
+            vjust=0.5,
+            hjust=1.5) +
+  geom_text(data=filter(prov_slim2, province %in% c('Bac Kan', 'Ho Chi Minh city')),
+            aes(x=highest_income_quintile_2016, y=province, label=highest_income_quintile_2016), 
+            #color="#649EFC", 
+            size=2.5, 
+            vjust=0.5,
+            hjust=-0.5)
+
+
+p3 <- p3 + geom_text(data=filter(prov_slim2, province=='Bac Kan'), 
+            aes(x=highest_income_quintile_2016, y=province, label='Highest quintile'), 
+            #color="#B2B2B2",
+            size=3, 
+            vjust=-2, 
+            hjust=0.5, 
+            fontface="bold") +
+  geom_text(data=filter(prov_slim2, province=='Bac Kan'), 
+            aes(x=lowest_income_quintile_2016, y=province, label='Lowest quintile'), 
+            size=3, 
+            vjust=-2, 
+            hjust=0.5, 
+            fontface="bold")
+
+p3
+
+# p <- p + geom_rect(aes(xmin=10, xmax=10.5, ymin=-Inf, ymax=Inf), fill="#EFEFE3") + 
+#   geom_text(aes(label=Diff, y=province, x=10.25, color=prov_slim$colors), 
+#             fontface="bold", 
+#             size=2.5) + 
+#   scale_color_manual(values=c('black','blue','red')) +
+#   geom_text(data=filter(prov_slim, province=='Binh Thuan'),
+#             aes(x=10.25, y=province, label='Changes'),
+#             size=3,
+#             vjust=-2,
+#             fontface='bold') +
+#             #color='#4D4D4D') +
+#   theme(legend.position='none')
+# 
+# p
+```
+
+```{r export, include=FALSE, eval=FALSE}
+region <- write.csv(region_quintiles, "/Users/mainguyen/Downloads/region.csv", row.names=TRUE)
+```
+
